@@ -1,124 +1,106 @@
 package com.yimu;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
+import java.util.HashMap;
 import java.util.LinkedList;
-import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.Random;
 
-
-public class WindowLFU<K, V> {
-
-    private int mCapacity;
-    private int mWindowSize;
+public class WindowLFU<K, V extends Comparable<V>> {
+    private MinHeap<K, V> minHeap;
+    private Map<K, Node<K, V>> map;
+    private Queue<K> window;
+    private int windowSize;
     private int total;
-    private int shoot;
+    private int hits;
 
-    private Queue<K> mWindow;
-    private Map<K, CacheNode<V>> mCache;
 
-    class CacheNode<V> {
-        public V value;
-        public int counts;
+    public WindowLFU(int cacheSize, int windowSize) {
+        minHeap = new MinHeap<>(cacheSize);
+        window = new LinkedList<>();
+        map = new HashMap<>((int) ((float) cacheSize / 0.75F + 1.0F));
+        this.windowSize = windowSize;
+        total = 0;
+        hits = 0;
+    }
 
-        public CacheNode(V v, int counts) {
-            this.value = v;
-            this.counts = counts;
+    public void put(K key, V value) {
+        if (key == null || value == null) {
+            return;
+        }
+
+        appendWindow(key);
+        Node<K, V> previous;
+        if ((previous = map.get(key)) != null) { // exists
+            previous.setValue(value);
+            minHeap.reVisited(previous.getIndex());
+        }else{
+            if(minHeap.isFull()){
+                map.remove(minHeap.getMin()
+                        .getKey());
+            }
+            int cnt = 0;
+            for(K k : window){
+                if(k.equals(key)){
+                    cnt++;
+                }
+            }
+            Node<K, V> node = new Node<>(key, value, cnt);
+            map.put(key, node);
+            minHeap.add(node);
         }
     }
-
-    public WindowLFU(int capacity, int windowSize) {
-        mCapacity = capacity;
-        mWindowSize = windowSize;
-        shoot = 0;
-        total = 0;
-        mWindow = new LinkedList<>();
-        mCache = new LinkedHashMap<>();
-    }
-
 
     public V get(K key) {
         total++;
         V value = null;
-        if (mCache.containsKey(key)) {
-            shoot++;
-            value = mCache.get(key).value;
-            this.put(key, value);
+        if (key != null) {
+            Node<K, V> node = map.get(key);
+            if (node != null) {
+                hits ++;
+                appendWindow(key);
+                value = node.getValue();
+                minHeap.reVisited(node.getIndex());
+            }
         }
         return value;
     }
 
-    public void put(K key, V value) {
-        mWindow.offer(key); // 向队尾插入元素
-        if (mWindow.size() > mWindowSize) {
-            K first = mWindow.poll(); // 移除队首元素
-            if (mCache.containsKey(first)) {
-                CacheNode item = mCache.get(first);
-                item.counts--;
-                if (item.counts == 0) {
-                    mCache.remove(first);
-                }
+    private void appendWindow(K key){
+        window.offer(key);
+        if (map.containsKey(key)) {
+            map.get(key).addCount(1);
+        }
+        if (window.size() > windowSize) {
+            K first = window.poll(); // 移除队首元素
+            if (map.containsKey(first)) {
+                Node<K, V> item = map.get(first);
+                item.addCount(-1);
             }
         }
 
-        if (mCache.containsKey(key)) {
-            mCache.remove(key);
-        }
-        int count = 0;
-        for(K k : mWindow){
-            if(k.equals(key)){
-                count++;
-            }
-        }
-        // Make sure insert front
-        Map<K,CacheNode<V>> newCache = new LinkedHashMap<>();
-        newCache.put(key, new CacheNode<>(value, count));
-        newCache.putAll(mCache);
-        mCache = newCache;
-        updateCache();
     }
 
-    public void remove(K key) {
-        mCache.remove(key);
-        updateCache();
-    }
-
-    private void updateCache() {
-        List<Map.Entry<K, CacheNode<V>>> tempList = new ArrayList<>(mCache.entrySet());
-        Collections.sort(tempList, new Comparator<Map.Entry<K, CacheNode<V>>>() {
-            @Override
-            public int compare(Map.Entry<K, CacheNode<V>> t1,
-                               Map.Entry<K, CacheNode<V>> t2) {
-                return t2.getValue().counts - t1.getValue().counts;
-            }
-        });
-        if (tempList.size() > mCapacity) {
-            tempList = tempList.subList(0, mCapacity);
-        }
-        mCache.clear();
-        for (Map.Entry<K, CacheNode<V>> entry : tempList) {
-            mCache.put(entry.getKey(), entry.getValue());
-        }
-    }
-
-
-    public float hitrate() {
-        if (total == 0) {
+    public float hitrate(){
+        if(total == 0){
             return 0;
         }
-        return (float) shoot / total;
+        return (float)hits/total;
     }
 
 
-    // for test, ignore
-    public Map<K, CacheNode<V>> getCache(){
-        return mCache;
-    }
-
-    public Queue<K> getWindow(){
-        return mWindow;
+    public static void main(String args[]){
+        WindowLFU<String, Integer> cache = new WindowLFU<>(10,20);
+        Random random = new Random();
+        // cal func(x,y) = 3*x+y
+        for (int i = 0; i < 1000; i++) {
+            int x = random.nextInt() % 5;
+            int y = random.nextInt() % 5;
+            String key = String.format("x=%d,y=%d", x, y);
+            if (cache.get(key) == null) {
+                cache.put(key, 3 * x + y);
+            }
+        }
+        System.out.println("HitRate=" + cache.hitrate());
     }
 }
