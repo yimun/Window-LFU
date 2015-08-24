@@ -60,7 +60,6 @@ public class WindowLFU<K, V> {
                 item.counts--;
                 if (item.counts == 0) {
                     mCache.remove(first);
-                    updateCache();
                 }
             }
         }
